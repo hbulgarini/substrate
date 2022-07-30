@@ -1,0 +1,48 @@
+[package]
+name = "pallet-liquid-staking"
+authors = ["Anonymous"]
+description = "FRAME pallet intended for liquid staking"
+version = "0.1.0-dev"
+license = "Unlicense"
+homepage = "https://substrate.io"
+repository = "https://github.com/paritytech/substrate/"
+edition = "2021"
+
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
+
+[dependencies]
+codec = { package = "parity-scale-codec", version = "3.0.0", default-features = false, features = ["derive"] }
+scale-info = { version = "2.1.1", default-features = false, features = ["derive"] }
+sp-std = { version = "4.0.0", default-features = false, path = "../../primitives/std" }
+sp-staking = { version = "4.0.0-dev", default-features = false, path = "../../primitives/staking" }
+sp-runtime = { version = "6.0.0", default-features = false, path = "../../primitives/runtime" }
+frame-benchmarking = { version = "4.0.0-dev", default-features = false, optional = true, path = "../benchmarking" }
+frame-support = { version = "4.0.0-dev", default-features = false, path = "../support" }
+frame-system = { version = "4.0.0-dev", default-features = false, path = "../system" }
+pallet-assets = { version = "4.0.0-dev", default-features = false, path = "../assets" }
+sp-core = { version = "6.0.0", default-features = false, path = "../../primitives/core" }
+sp-io = { version = "6.0.0", default-features = false, path = "../../primitives/io" }
+
+
+[dev-dependencies]
+pallet-assets = { version = "4.0.0-dev", path = "../assets" }
+pallet-balances = { version = "4.0.0-dev", path = "../balances" }
+
+[features]
+runtime-benchmarks = []
+try-runtime = []
+default = ["std"]
+std = [
+	"codec/std",
+	"sp-std/std",
+	"scale-info/std",
+	"sp-runtime/std",
+	"frame-benchmarking/std",
+	"sp-staking/std",
+	"frame-support/std",
+	"frame-system/std",
+	"pallet-assets/std",
+	"sp-core/std",
+	"sp-io/std",
+]
