@@ -1,12 +1,13 @@
 use crate as pallet_liquid_staking;
-use frame_support::pallet_prelude::{DispatchError, DispatchResult};
 use frame_support::{
+	pallet_prelude::{DispatchError, DispatchResult},
 	parameter_types,
 	traits::{ConstU32, ConstU64},
+	PalletId,
 };
-
-use sp_std::collections::btree_map::BTreeMap;
-use sp_std::vec::Vec;
+use sp_keystore::{testing::KeyStore, KeystoreExt};
+use sp_std::{collections::btree_map::BTreeMap, vec::Vec};
+use std::sync::Arc;
 
 type UncheckedExtrinsic = frame_system::mocking::MockUncheckedExtrinsic<Test>;
 type Block = frame_system::mocking::MockBlock<Test>;
@@ -130,10 +131,6 @@ frame_support::construct_runtime!(
 	}
 );
 
-parameter_types! {
-	pub static ExistentialDeposit: Balance = 5;
-}
-
 impl pallet_balances::Config for Test {
 	type Balance = u64;
 	type DustRemoval = ();
@@ -190,6 +187,11 @@ impl pallet_assets::Config for Test {
 	type Extra = ();
 }
 
+parameter_types! {
+	pub const LiquidStakingPalletId: PalletId = PalletId(*b"lstaking");
+
+}
+
 impl pallet_liquid_staking::Config for Test {
 	type Event = Event;
 	type StakingInterface = StakingMock;
@@ -197,9 +199,27 @@ impl pallet_liquid_staking::Config for Test {
 	type Assets = Assets;
 	type Currency = Balances;
 	type CurrencyBalance = <Self as pallet_balances::Config>::Balance;
+	type PalletId = LiquidStakingPalletId;
 }
 
 // Build genesis storage according to the mock runtime.
 pub fn new_test_ext() -> sp_io::TestExternalities {
-	frame_system::GenesisConfig::default().build_storage::<Test>().unwrap().into()
+	let mut t = frame_system::GenesisConfig::default().build_storage::<Test>().unwrap();
+	pallet_balances::GenesisConfig::<Test> {
+		balances: vec![
+			(1, 10000000000),
+			(2, 10000000000),
+			(3, 10000000000),
+			(4, 10000000000),
+			(LiquidStaking::account_id(), 100000000),
+		],
+	}
+	.assimilate_storage(&mut t)
+	.unwrap();
+
+	let keystore = KeyStore::new();
+	let mut ext = sp_io::TestExternalities::new(t);
+	ext.register_extension(KeystoreExt(Arc::new(keystore)));
+	ext.execute_with(|| System::set_block_number(1));
+	ext
 }

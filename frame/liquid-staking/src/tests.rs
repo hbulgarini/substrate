@@ -22,10 +22,14 @@ use crate::mock::*;
 #[test]
 fn basic_minting_should_work() {
 	new_test_ext().execute_with(|| {
+		LiquidStaking::init(Origin::signed(1), Origin::signed(1)).unwrap();
 		LiquidStaking::stake(
 			Origin::signed(1),
-			types::BalanceOrAsset::Balance { amount: 1 },
+			types::BalanceOrAsset::Balance { amount: 123 },
 			vec![11u128],
-		);
+		)
+		.unwrap();
+		let balance = StakingMock::total_stake(&1u128);
+		println!("Balance: {:?}", balance);
 	});
 }

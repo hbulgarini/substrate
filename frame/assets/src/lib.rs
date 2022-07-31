@@ -137,8 +137,6 @@ mod functions;
 mod impl_fungibles;
 mod impl_stored_map;
 mod types;
-pub use types::*;
-
 use codec::HasCompact;
 use scale_info::TypeInfo;
 use sp_runtime::{
@@ -148,6 +146,7 @@ use sp_runtime::{
 	ArithmeticError, TokenError,
 };
 use sp_std::{borrow::Borrow, prelude::*};
+pub use types::*;
 
 use frame_support::{
 	dispatch::{DispatchError, DispatchResult},
@@ -246,7 +245,7 @@ pub mod pallet {
 
 	#[pallet::storage]
 	/// Details of an asset.
-	pub(super) type Asset<T: Config<I>, I: 'static = ()> = StorageMap<
+	pub type Asset<T: Config<I>, I: 'static = ()> = StorageMap<
 		_,
 		Blake2_128Concat,
 		T::AssetId,
@@ -900,7 +899,7 @@ pub mod pallet {
 				let details = maybe_details.as_mut().ok_or(Error::<T, I>::Unknown)?;
 				ensure!(origin == details.owner, Error::<T, I>::NoPermission);
 				if details.owner == owner {
-					return Ok(())
+					return Ok(());
 				}
 
 				let metadata_deposit = Metadata::<T, I>::get(id).deposit;

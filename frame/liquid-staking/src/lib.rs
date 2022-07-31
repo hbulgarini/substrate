@@ -15,7 +15,7 @@ mod types;
 
 pub use types::*;
 
-use sp_runtime::traits::AtLeast32BitUnsigned;
+use sp_runtime::traits::{AccountIdConversion, AtLeast32BitUnsigned, Zero};
 use sp_staking::StakingInterface;
 use sp_std::vec::Vec;
 
@@ -26,9 +26,12 @@ pub mod pallet {
 		dispatch::DispatchResult,
 		pallet_prelude::*,
 		traits::{
-			fungibles::{Inspect, Mutate, Transfer},
-			Currency, ReservableCurrency,
+			fungibles::{metadata::Mutate as MutateMetadata, Create, Inspect, Mutate, Transfer},
+			Currency,
+			ExistenceRequirement::KeepAlive,
+			ReservableCurrency,
 		},
+		PalletId,
 	};
 	use frame_system::pallet_prelude::*;
 
@@ -40,6 +43,7 @@ pub mod pallet {
 	pub trait Config: frame_system::Config {
 		/// Because this pallet emits events, it depends on the runtime's definition of an event.
 		type Event: From<Event<Self>> + IsType<<Self as frame_system::Config>::Event>;
+
 		type Currency: ReservableCurrency<Self::AccountId, Balance = Self::CurrencyBalance>;
 		type CurrencyBalance: AtLeast32BitUnsigned
 			+ codec::FullCodec
@@ -62,14 +66,19 @@ pub mod pallet {
 			+ TypeInfo;
 
 		type Assets: Inspect<Self::AccountId, AssetId = Self::AssetId, Balance = Self::CurrencyBalance>
+			+ Create<Self::AccountId>
 			+ Transfer<Self::AccountId>
-			+ Mutate<Self::AccountId>;
+			+ Mutate<Self::AccountId>
+			+ MutateMetadata<Self::AccountId>;
 
 		/// The interface for nominating.
 		type StakingInterface: StakingInterface<
 			Balance = BalanceOf<Self>,
 			AccountId = Self::AccountId,
 		>;
+
+		#[pallet::constant]
+		type PalletId: Get<PalletId>;
 	}
 
 	pub type AssetIdOf<T> =
@@ -83,12 +92,87 @@ pub mod pallet {
 	pub struct Pallet<T>(_);
 
 	// The pallet's runtime storage items.
-	// https://docs.substrate.io/v3/runtime/storage
+	// https&://docs.substrate.io/v3/runtime/storage
 	#[pallet::storage]
 	#[pallet::getter(fn get_channel)]
 	// Learn more about declaring storage items:
 	// https://docs.substrate.io/v3/runtime/storage#declaring-storage-items
 	pub type Reserved<T: Config> = StorageMap<_, Blake2_128Concat, T::AccountId, BalanceOf<T>>;
+
+	/* 	#[pallet::genesis_config]
+	pub struct GenesisConfig<T: Config> {
+		pub liquid_asset: (T::AssetId, T::AccountId, bool, T::CurrencyBalance),
+		pub metadata: (T::AssetId, Vec<u8>, Vec<u8>, u8),
+	}
+
+	#[cfg(feature = "std")]
+	impl<T: Config> Default for GenesisConfig<T> {
+		fn default() -> Self {
+			let owner = T::PalletId::get().into_account_truncating();
+			Self {
+				liquid_asset: (
+					T::AssetId::from(1u32.into()),
+					owner,
+					true,
+					T::CurrencyBalance::from(1u64),
+				),
+				metadata: (
+					T::AssetId::from(1u32.into()),
+					"LTOK".into(),
+					"Liquid Token".into(),
+					10.into(),
+				),
+			}
+		}
+	}
+
+	#[pallet::genesis_build]
+	impl<T: Config> GenesisBuild<T> for GenesisConfig<T> {
+		fn build(&self) {
+			// let owner = T::account_id();
+			let (id, owner, is_sufficient, min_balance) = &self.liquid_asset;
+			//	assert!(!pallet_assets::Asset::T::contains_key(id), "Asset id already in use");
+			assert!(!min_balance.is_zero(), "Min balance should not be zero");
+
+			T::Assets::create(*id, owner.clone(), *is_sufficient, *min_balance);
+
+			let (_, name, symbol, decimals) = &self.metadata;
+			assert!(pallet_assets::pallet::Asset::contains_key(id), "Asset does not exist");
+			//pallet_assets::pallet::Asset::contains_key(key: KeyArg)
+
+			let bounded_name: BoundedVec<u8, T::StringLimit> =
+				name.clone().try_into().expect("asset name is too long");
+			let bounded_symbol: BoundedVec<u8, T::StringLimit> =
+				symbol.clone().try_into().expect("asset symbol is too long");
+
+			let metadata = AssetMetadata {
+				deposit: Zero::zero(),
+				name: bounded_name,
+				symbol: bounded_symbol,
+				decimals: *decimals,
+				is_frozen: false,
+			};
+
+			Metadata::<T>::insert(id, metadata);
+		}
+
+		/* 			for (id, account_id, amount) in &self.accounts {
+			let result = <Pallet<T>>::increase_balance(
+				*id,
+				account_id,
+				*amount,
+				|details| -> DispatchResult {
+					debug_assert!(
+						T::Balance::max_value() - details.supply >= *amount,
+						"checked in prep; qed"
+					);
+					details.supply = details.supply.saturating_add(*amount);
+					Ok(())
+				},
+			);
+			assert!(result.is_ok());
+		} */
+	} */
 
 	// Pallets use events to inform users when important changes are made.
 	// https://docs.substrate.io/v3/runtime/events-and-errors
@@ -114,7 +198,36 @@ pub mod pallet {
 	// These functions materialize as "extrinsics", which are often compared to transactions.
 	// Dispatchable functions must be annotated with a weight and must return a DispatchResult.
 	#[pallet::call]
+
 	impl<T: Config> Pallet<T> {
+		#[pallet::weight(10_000 + T::DbWeight::get().reads_writes(1,1))]
+		pub fn fund(
+			_origin: OriginFor<T>,
+			founder: T::AccountId,
+			funding_amount: T::CurrencyBalance,
+		) -> DispatchResult {
+			Self::fund_pallet_account(founder, funding_amount);
+			let owner = Self::account_id();
+
+			log::info!(
+				target: "TEST",
+				"Owner {:#?}",
+				owner,
+			);
+			Ok(())
+		}
+
+		#[pallet::weight(10_000 + T::DbWeight::get().reads_writes(1,1))]
+		pub fn init(_origin: OriginFor<T>) -> DispatchResult {
+			let owner = Self::account_id();
+			let asset_id = T::AssetId::from(1u32.into());
+			T::Assets::create(asset_id, owner.clone(), true, T::CurrencyBalance::from(1u64))
+				.unwrap();
+			T::Assets::set(asset_id, &owner, "LDOT".into(), "LDOT".into(), 10).unwrap();
+
+			Ok(())
+		}
+
 		/// An example dispatchable that may throw a custom error.
 		#[pallet::weight(10_000 + T::DbWeight::get().reads_writes(1,1))]
 		pub fn stake(
@@ -153,6 +266,17 @@ pub mod pallet {
 			T::Currency::unreserve(&who, left);
 			Reserved::<T>::insert(&who, left);
 			Ok(())
+		}
+	}
+
+	impl<T: Config> Pallet<T> {
+		pub fn account_id() -> T::AccountId {
+			T::PalletId::get().into_account_truncating()
+		}
+
+		pub fn fund_pallet_account(account_with_funds: T::AccountId, amount: T::CurrencyBalance) {
+			let account = Self::account_id();
+			T::Currency::transfer(&account_with_funds, &account, amount, KeepAlive).unwrap();
 		}
 	}
 }
