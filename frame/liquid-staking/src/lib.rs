@@ -11,10 +11,6 @@ mod mock;
 #[cfg(test)]
 mod tests;
 
-mod types;
-
-pub use types::*;
-
 use sp_runtime::traits::{AccountIdConversion, AtLeast32BitUnsigned, Zero};
 use sp_staking::StakingInterface;
 use sp_std::vec::Vec;
@@ -26,7 +22,10 @@ pub mod pallet {
 		dispatch::DispatchResult,
 		pallet_prelude::*,
 		traits::{
-			fungibles::{metadata::Mutate as MutateMetadata, Create, Inspect, Mutate, Transfer},
+			fungibles::{
+				metadata::Mutate as MutateMetadata, multicurrency::BalanceOrAsset, Create, Inspect,
+				Mutate, Transfer,
+			},
 			Currency,
 			ExistenceRequirement::KeepAlive,
 			ReservableCurrency,

@@ -28,6 +28,7 @@ use sp_std::vec::Vec;
 pub mod approvals;
 mod balanced;
 pub mod metadata;
+pub mod multicurrency;
 pub use balanced::{Balanced, Unbalanced};
 mod imbalance;
 pub use imbalance::{CreditOf, DebtOf, HandleImbalanceDrop, Imbalance};
