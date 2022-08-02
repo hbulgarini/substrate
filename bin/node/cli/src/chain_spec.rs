@@ -299,10 +299,15 @@ pub fn testnet_genesis(
 	let staking_lp_owner: AccountId =
 		hex!["6d6f646c6c7374616b696e670000000000000000000000000000000000000000"].into();
 
+	let mut balances: Vec<(sp_runtime::AccountId32, u128)> =  endowed_accounts.iter().cloned().map(|x| (x, ENDOWMENT)).collect();
+
+	balances.push((staking_lp_owner.clone(),10000000000000));
+
 	GenesisConfig {
 		system: SystemConfig { code: wasm_binary_unwrap().to_vec() },
 		balances: BalancesConfig {
-			balances: endowed_accounts.iter().cloned().map(|x| (x, ENDOWMENT)).collect(),
+			balances
+			
 		},
 		indices: IndicesConfig { indices: vec![] },
 		session: SessionConfig {

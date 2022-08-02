@@ -264,7 +264,7 @@ impl pallet_assets::Config for Test {
 
 parameter_types! {
 	pub const LiquidStakingPalletId: PalletId = PalletId(*b"lstaking");
-	pub const LiquidAssetId = ConstU32(1);
+	pub const LiquidAssetId: u32 = 1;
 
 }
 
@@ -281,15 +281,24 @@ impl pallet_liquid_staking::Config for Test {
 
 // Build genesis storage according to the mock runtime.
 pub fn new_test_ext() -> sp_io::TestExternalities {
+	let staking_lp_owner = LiquidStaking::account_id();
 	let mut t = frame_system::GenesisConfig::default().build_storage::<Test>().unwrap();
 	pallet_balances::GenesisConfig::<Test> {
 		balances: vec![
 			(1, 100000000000000),
-			(2, 10000000000),
-			(3, 10000000000),
-			(4, 10000000000),
-			(LiquidStaking::account_id(), 1000000000000),
+			(2, 100000000000000),
+			(3, 100000000000000),
+			(4, 100000000000000),
+			(staking_lp_owner, 1000000000000),
 		],
+	}
+	.assimilate_storage(&mut t)
+	.unwrap();
+
+	pallet_assets::GenesisConfig::<Test> {
+		assets: vec![(1, staking_lp_owner.clone(), true, 1)],
+		metadata: vec![(1, "LDOT".into(), "LDOT".into(), 12)],
+		accounts: vec![(1, staking_lp_owner.clone(), 1)],
 	}
 	.assimilate_storage(&mut t)
 	.unwrap();
