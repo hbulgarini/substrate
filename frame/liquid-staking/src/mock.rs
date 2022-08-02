@@ -1,10 +1,13 @@
 use crate as pallet_liquid_staking;
 use frame_support::{
+	ord_parameter_types,
 	pallet_prelude::{DispatchError, DispatchResult},
 	parameter_types,
-	traits::{ConstU32, ConstU64},
+	traits::{ConstU32, ConstU64, EqualPrivilegeOnly, SortedMembers},
+	weights::Weight,
 	PalletId,
 };
+use frame_system::{EnsureRoot, EnsureSignedBy};
 use sp_keystore::{testing::KeyStore, KeystoreExt};
 use sp_std::{collections::btree_map::BTreeMap, vec::Vec};
 use std::sync::Arc;
@@ -128,6 +131,8 @@ frame_support::construct_runtime!(
 		LiquidStaking: pallet_liquid_staking::{Pallet, Call, Storage, Event<T>},
 		Assets: pallet_assets::{Pallet, Call, Storage, Event<T>},
 		Balances: pallet_balances::{Pallet, Call, Storage, Event<T>},
+		Scheduler: pallet_scheduler::{Pallet, Call, Storage, Event<T>},
+		Democracy: pallet_democracy::{Pallet, Call, Storage, Config<T>, Event<T>},
 	}
 );
 
@@ -141,6 +146,76 @@ impl pallet_balances::Config for Test {
 	type MaxLocks = ();
 	type MaxReserves = ();
 	type ReserveIdentifier = [u8; 8];
+}
+
+parameter_types! {
+	pub static PreimageByteDeposit: u64 = 0;
+	pub static InstantAllowed: bool = false;
+}
+
+ord_parameter_types! {
+	pub const One: u128 = 1;
+	pub const Two: u128 = 2;
+	pub const Three: u128 = 3;
+	pub const Four: u128 = 4;
+	pub const Five: u128 = 5;
+	pub const Six: u128 = 6;
+}
+pub struct OneToFive;
+impl SortedMembers<u128> for OneToFive {
+	fn sorted_members() -> Vec<u128> {
+		vec![1, 2, 3, 4, 5]
+	}
+	#[cfg(feature = "runtime-benchmarks")]
+	fn add(_m: &u128) {}
+}
+
+impl pallet_democracy::Config for Test {
+	type Proposal = Call;
+	type Event = Event;
+	type Currency = pallet_balances::Pallet<Self>;
+	type EnactmentPeriod = ConstU64<2>;
+	type LaunchPeriod = ConstU64<2>;
+	type VotingPeriod = ConstU64<2>;
+	type VoteLockingPeriod = ConstU64<3>;
+	type FastTrackVotingPeriod = ConstU64<2>;
+	type MinimumDeposit = ConstU64<1>;
+	type ExternalOrigin = EnsureSignedBy<Two, u128>;
+	type ExternalMajorityOrigin = EnsureSignedBy<Three, u128>;
+	type ExternalDefaultOrigin = EnsureSignedBy<One, u128>;
+	type FastTrackOrigin = EnsureSignedBy<Five, u128>;
+	type CancellationOrigin = EnsureSignedBy<Four, u128>;
+	type BlacklistOrigin = EnsureRoot<u128>;
+	type CancelProposalOrigin = EnsureRoot<u128>;
+	type VetoOrigin = EnsureSignedBy<OneToFive, u128>;
+	type CooloffPeriod = ConstU64<2>;
+	type PreimageByteDeposit = PreimageByteDeposit;
+	type Slash = ();
+	type InstantOrigin = EnsureSignedBy<Six, u128>;
+	type InstantAllowed = InstantAllowed;
+	type Scheduler = Scheduler;
+	type MaxVotes = ConstU32<100>;
+	type OperationalPreimageOrigin = EnsureSignedBy<Six, u128>;
+	type PalletsOrigin = OriginCaller;
+	type WeightInfo = ();
+	type MaxProposals = ConstU32<100>;
+}
+
+parameter_types! {
+	pub MaximumSchedulerWeight: Weight = 1000;
+}
+impl pallet_scheduler::Config for Test {
+	type Event = Event;
+	type Origin = Origin;
+	type PalletsOrigin = OriginCaller;
+	type Call = Call;
+	type MaximumWeight = MaximumSchedulerWeight;
+	type ScheduleOrigin = EnsureRoot<u128>;
+	type MaxScheduledPerBlock = ();
+	type WeightInfo = ();
+	type OriginPrivilegeCmp = EqualPrivilegeOnly;
+	type PreimageProvider = ();
+	type NoPreimagePostponement = ();
 }
 
 impl frame_system::Config for Test {
@@ -197,7 +272,7 @@ impl pallet_liquid_staking::Config for Test {
 	type StakingInterface = StakingMock;
 	type AssetId = u32;
 	type Assets = Assets;
-	type Currency = Balances;
+	type ReservedCurrency = Balances;
 	type CurrencyBalance = <Self as pallet_balances::Config>::Balance;
 	type PalletId = LiquidStakingPalletId;
 }
@@ -207,11 +282,11 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 	let mut t = frame_system::GenesisConfig::default().build_storage::<Test>().unwrap();
 	pallet_balances::GenesisConfig::<Test> {
 		balances: vec![
-			(1, 10000000000),
+			(1, 100000000000000),
 			(2, 10000000000),
 			(3, 10000000000),
 			(4, 10000000000),
-			(LiquidStaking::account_id(), 100000000),
+			(LiquidStaking::account_id(), 1000000000000),
 		],
 	}
 	.assimilate_storage(&mut t)

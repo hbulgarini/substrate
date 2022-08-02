@@ -5728,6 +5728,8 @@ dependencies = [
  "log",
  "pallet-assets",
  "pallet-balances",
+ "pallet-democracy",
+ "pallet-scheduler",
  "parity-scale-codec",
  "scale-info",
  "sp-core",

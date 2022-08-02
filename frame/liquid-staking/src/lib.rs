@@ -11,6 +11,7 @@ mod mock;
 #[cfg(test)]
 mod tests;
 
+use pallet_democracy::{AccountVote, ReferendumIndex};
 use sp_runtime::traits::{AccountIdConversion, AtLeast32BitUnsigned, Zero};
 use sp_staking::StakingInterface;
 use sp_std::vec::Vec;
@@ -28,22 +29,24 @@ pub mod pallet {
 			},
 			Currency,
 			ExistenceRequirement::KeepAlive,
-			ReservableCurrency,
+			LockableCurrency, ReservableCurrency,
 		},
 		PalletId,
 	};
 	use frame_system::pallet_prelude::*;
-
-	pub(super) type BalanceOf<T> =
-		<<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
+	use pallet_democracy::{Conviction, Vote};
 
 	/// Configure the pallet by specifying the parameters and types on which it depends.
 	#[pallet::config]
-	pub trait Config: frame_system::Config {
+	pub trait Config:
+		frame_system::Config + pallet_democracy::Config<Currency = Self::ReservedCurrency>
+	{
 		/// Because this pallet emits events, it depends on the runtime's definition of an event.
 		type Event: From<Event<Self>> + IsType<<Self as frame_system::Config>::Event>;
 
-		type Currency: ReservableCurrency<Self::AccountId, Balance = Self::CurrencyBalance>;
+		type ReservedCurrency: ReservableCurrency<Self::AccountId, Balance = Self::CurrencyBalance>
+			+ LockableCurrency<Self::AccountId, Balance = Self::CurrencyBalance>;
+
 		type CurrencyBalance: AtLeast32BitUnsigned
 			+ codec::FullCodec
 			+ Copy
@@ -86,6 +89,15 @@ pub mod pallet {
 		<<T as Config>::Assets as Inspect<<T as frame_system::Config>::AccountId>>::Balance;
 	pub type BalanceOrAssetOf<T> = BalanceOrAsset<BalanceOf<T>, AssetIdOf<T>, AssetBalanceOf<T>>;
 
+	pub(super) type BalanceOf<T> = <<T as Config>::ReservedCurrency as Currency<
+		<T as frame_system::Config>::AccountId,
+	>>::Balance;
+
+	#[derive(Encode, Decode, Copy, Clone, Eq, PartialEq, RuntimeDebug, TypeInfo)]
+	pub enum VoteType<BalanceOrAssetOf> {
+		Standard { vote: Vote, balance: BalanceOrAssetOf },
+		Split { balance: BalanceOrAssetOf },
+	}
 	#[pallet::pallet]
 	#[pallet::generate_store(pub(super) trait Store)]
 	pub struct Pallet<T>(_);
@@ -93,85 +105,18 @@ pub mod pallet {
 	// The pallet's runtime storage items.
 	// https&://docs.substrate.io/v3/runtime/storage
 	#[pallet::storage]
-	#[pallet::getter(fn get_channel)]
+	#[pallet::getter(fn get_staked)]
 	// Learn more about declaring storage items:
 	// https://docs.substrate.io/v3/runtime/storage#declaring-storage-items
-	pub type Reserved<T: Config> = StorageMap<_, Blake2_128Concat, T::AccountId, BalanceOf<T>>;
+	pub type Staked<T: Config> = StorageMap<_, Blake2_128Concat, T::AccountId, T::CurrencyBalance>;
 
-	/* 	#[pallet::genesis_config]
-	pub struct GenesisConfig<T: Config> {
-		pub liquid_asset: (T::AssetId, T::AccountId, bool, T::CurrencyBalance),
-		pub metadata: (T::AssetId, Vec<u8>, Vec<u8>, u8),
-	}
-
-	#[cfg(feature = "std")]
-	impl<T: Config> Default for GenesisConfig<T> {
-		fn default() -> Self {
-			let owner = T::PalletId::get().into_account_truncating();
-			Self {
-				liquid_asset: (
-					T::AssetId::from(1u32.into()),
-					owner,
-					true,
-					T::CurrencyBalance::from(1u64),
-				),
-				metadata: (
-					T::AssetId::from(1u32.into()),
-					"LTOK".into(),
-					"Liquid Token".into(),
-					10.into(),
-				),
-			}
-		}
-	}
-
-	#[pallet::genesis_build]
-	impl<T: Config> GenesisBuild<T> for GenesisConfig<T> {
-		fn build(&self) {
-			// let owner = T::account_id();
-			let (id, owner, is_sufficient, min_balance) = &self.liquid_asset;
-			//	assert!(!pallet_assets::Asset::T::contains_key(id), "Asset id already in use");
-			assert!(!min_balance.is_zero(), "Min balance should not be zero");
-
-			T::Assets::create(*id, owner.clone(), *is_sufficient, *min_balance);
-
-			let (_, name, symbol, decimals) = &self.metadata;
-			assert!(pallet_assets::pallet::Asset::contains_key(id), "Asset does not exist");
-			//pallet_assets::pallet::Asset::contains_key(key: KeyArg)
-
-			let bounded_name: BoundedVec<u8, T::StringLimit> =
-				name.clone().try_into().expect("asset name is too long");
-			let bounded_symbol: BoundedVec<u8, T::StringLimit> =
-				symbol.clone().try_into().expect("asset symbol is too long");
-
-			let metadata = AssetMetadata {
-				deposit: Zero::zero(),
-				name: bounded_name,
-				symbol: bounded_symbol,
-				decimals: *decimals,
-				is_frozen: false,
-			};
-
-			Metadata::<T>::insert(id, metadata);
-		}
-
-		/* 			for (id, account_id, amount) in &self.accounts {
-			let result = <Pallet<T>>::increase_balance(
-				*id,
-				account_id,
-				*amount,
-				|details| -> DispatchResult {
-					debug_assert!(
-						T::Balance::max_value() - details.supply >= *amount,
-						"checked in prep; qed"
-					);
-					details.supply = details.supply.saturating_add(*amount);
-					Ok(())
-				},
-			);
-			assert!(result.is_ok());
-		} */
-	} */
+	// The pallet's runtime storage items.
+	// https&://docs.substrate.io/v3/runtime/storage
+	#[pallet::storage]
+	#[pallet::getter(fn get_voted)]
+	// Learn more about declaring storage items:
+	// https://docs.substrate.io/v3/runtime/storage#declaring-storage-items
+	pub type Voted<T: Config> = StorageMap<_, Blake2_128Concat, T::AccountId, T::CurrencyBalance>;
 
 	// Pallets use events to inform users when important changes are made.
 	// https://docs.substrate.io/v3/runtime/events-and-errors
@@ -200,24 +145,20 @@ pub mod pallet {
 
 	impl<T: Config> Pallet<T> {
 		#[pallet::weight(10_000 + T::DbWeight::get().reads_writes(1,1))]
-		pub fn fund(
-			_origin: OriginFor<T>,
-			founder: T::AccountId,
-			funding_amount: T::CurrencyBalance,
-		) -> DispatchResult {
-			Self::fund_pallet_account(founder, funding_amount);
-			let owner = Self::account_id();
-
-			log::info!(
-				target: "TEST",
-				"Owner {:#?}",
-				owner,
-			);
+		pub fn init(origin: OriginFor<T>) -> DispatchResult {
+			let who = ensure_signed(origin)?;
+			let account = Self::account_id();
+			let amount = BalanceOf::<T>::from(1_000_000_000_000_000u64);
+			T::ReservedCurrency::transfer(&who, &account, amount, KeepAlive).unwrap();
+			let asset_id = T::AssetId::from(1u32.into());
+			T::Assets::create(asset_id, account.clone(), true, T::CurrencyBalance::from(1u64))
+				.unwrap();
+			T::Assets::set(asset_id, &account, "LDOT".into(), "LDOT".into(), 10).unwrap();
 			Ok(())
 		}
 
 		#[pallet::weight(10_000 + T::DbWeight::get().reads_writes(1,1))]
-		pub fn init(_origin: OriginFor<T>) -> DispatchResult {
+		pub fn init_old(_origin: OriginFor<T>) -> DispatchResult {
 			let owner = Self::account_id();
 			let asset_id = T::AssetId::from(1u32.into());
 			T::Assets::create(asset_id, owner.clone(), true, T::CurrencyBalance::from(1u64))
@@ -229,41 +170,55 @@ pub mod pallet {
 
 		/// An example dispatchable that may throw a custom error.
 		#[pallet::weight(10_000 + T::DbWeight::get().reads_writes(1,1))]
-		pub fn stake(
-			origin: OriginFor<T>,
-			value: BalanceOrAssetOf<T>,
-			validator: Vec<T::AccountId>,
-		) -> DispatchResult {
+		pub fn stake(origin: OriginFor<T>, value: T::CurrencyBalance) -> DispatchResult {
 			let source = ensure_signed(origin)?;
 
-			//T::Currency::reserve(&source, value.clone().into_amount())?;
+			let owner = Self::account_id();
 
-			let valuec = value.clone();
-			T::Assets::mint_into(T::AssetId::from(1u32.into()), &source, value.into_amount())
-				.unwrap();
+			T::ReservedCurrency::transfer(&source, &owner, value, KeepAlive).unwrap();
 
-			let staked_account = source.clone();
-			T::StakingInterface::bond(
-				staked_account.clone(),
-				staked_account.clone(),
-				valuec.into_amount(),
-				staked_account.clone(),
-			)
-			.unwrap();
+			<Staked<T>>::insert(&source, &value);
 
-			T::StakingInterface::nominate(source, validator).unwrap();
+			T::Assets::mint_into(T::AssetId::from(1u32.into()), &source, value).unwrap();
+
+			T::StakingInterface::bond(owner.clone(), owner.clone(), value.clone(), owner.clone())
+				.unwrap_or(T::StakingInterface::bond_extra(owner.clone(), value.clone()).unwrap());
 
 			Ok(())
 		}
 
 		#[pallet::weight(10_000 + T::DbWeight::get().reads_writes(1,1))]
-		pub fn unstake(origin: OriginFor<T>, value: BalanceOrAssetOf<T>) -> DispatchResult {
-			let who = ensure_signed(origin)?;
+		pub fn nominate(_origin: OriginFor<T>, validator: Vec<T::AccountId>) -> DispatchResult {
+			let owner = Self::account_id();
+			T::StakingInterface::nominate(owner.clone(), validator).unwrap();
 
-			let reserved = Reserved::<T>::get(&who).unwrap();
-			let left = reserved - value.into_amount();
-			T::Currency::unreserve(&who, left);
-			Reserved::<T>::insert(&who, left);
+			Ok(())
+		}
+
+		#[pallet::weight(10_000 + T::DbWeight::get().reads_writes(1,1))]
+		pub fn unstake(origin: OriginFor<T>) -> DispatchResult {
+			let who = ensure_signed(origin)?;
+			let asset_id = T::AssetId::from(1u32.into());
+			T::Assets::balance(asset_id, &who);
+
+			Ok(())
+		}
+
+		#[pallet::weight(10_000 + T::DbWeight::get().reads_writes(1,1))]
+		pub fn vote_with_liquid(
+			origin: OriginFor<T>,
+			#[pallet::compact] ref_index: ReferendumIndex,
+			vote: AccountVote<BalanceOf<T>>,
+		) -> DispatchResult {
+			let who = ensure_signed(origin)?;
+			let asset_id = T::AssetId::from(1u32.into());
+			let owner = Self::account_id();
+			let amount = vote.balance();
+			T::Assets::transfer(asset_id, &who, &owner, amount, true).unwrap();
+			<Voted<T>>::insert(&who, &amount);
+
+			pallet_democracy::Pallet::<T>::try_vote(&owner, ref_index, vote).unwrap();
+
 			Ok(())
 		}
 	}
@@ -275,7 +230,9 @@ pub mod pallet {
 
 		pub fn fund_pallet_account(account_with_funds: T::AccountId, amount: T::CurrencyBalance) {
 			let account = Self::account_id();
-			T::Currency::transfer(&account_with_funds, &account, amount, KeepAlive).unwrap();
+			let amount = BalanceOf::<T>::from(1_000_000_000u64);
+			T::ReservedCurrency::transfer(&account_with_funds, &account, amount, KeepAlive)
+				.unwrap();
 		}
 	}
 }

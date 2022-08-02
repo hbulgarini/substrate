@@ -21,6 +21,8 @@ frame-benchmarking = { version = "4.0.0-dev", default-features = false, optional
 frame-support = { version = "4.0.0-dev", default-features = false, path = "../support" }
 frame-system = { version = "4.0.0-dev", default-features = false, path = "../system" }
 pallet-assets = { version = "4.0.0-dev", default-features = false, path = "../assets" }
+pallet-democracy = { version = "4.0.0-dev", default-features = false, path = "../democracy" }
+
 sp-core = { version = "6.0.0", default-features = false, path = "../../primitives/core" }
 sp-io = { version = "6.0.0", default-features = false, path = "../../primitives/io" }
 log = "0.4.17"
@@ -28,6 +30,8 @@ log = "0.4.17"
 [dev-dependencies]
 pallet-assets = { version = "4.0.0-dev", path = "../assets" }
 pallet-balances = { version = "4.0.0-dev", path = "../balances" }
+pallet-democracy = { version = "4.0.0-dev", default-features = false, path = "../democracy" }
+pallet-scheduler = { version = "4.0.0-dev", default-features = false, path = "../scheduler" }
 sp-keystore = { version = "0.12.0", path = "../../primitives/keystore" }
 
 [features]
@@ -44,6 +48,7 @@ std = [
 	"frame-support/std",
 	"frame-system/std",
 	"pallet-assets/std",
+	"pallet-democracy/std",
 	"sp-core/std",
 	"sp-io/std",
 ]

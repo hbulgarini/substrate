@@ -1363,7 +1363,7 @@ impl<T: Config> Pallet<T> {
 	}
 
 	/// Actually enact a vote, if legit.
-	fn try_vote(
+	pub fn try_vote(
 		who: &T::AccountId,
 		ref_index: ReferendumIndex,
 		vote: AccountVote<BalanceOf<T>>,

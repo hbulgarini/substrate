@@ -377,7 +377,7 @@ impl pallet_preimage::Config for Runtime {
 parameter_types! {
 	// NOTE: Currently it is not possible to change the epoch duration after the chain has started.
 	//       Attempting to do so will brick block production.
-	pub const EpochDuration: u64 = EPOCH_DURATION_IN_SLOTS;
+	pub const EpochDuration: u64 = 60u64;
 	pub const ExpectedBlockTime: Moment = MILLISECS_PER_BLOCK;
 	pub const ReportLongevity: u64 =
 		BondingDuration::get() as u64 * SessionsPerEra::get() as u64 * EpochDuration::get();
@@ -879,11 +879,11 @@ impl pallet_remark::Config for Runtime {
 }
 
 parameter_types! {
-	pub const LaunchPeriod: BlockNumber = 28 * 24 * 60 * MINUTES;
-	pub const VotingPeriod: BlockNumber = 28 * 24 * 60 * MINUTES;
-	pub const FastTrackVotingPeriod: BlockNumber = 3 * 24 * 60 * MINUTES;
+	pub const LaunchPeriod: BlockNumber = 1 * MINUTES;
+	pub const VotingPeriod: BlockNumber = 10  * MINUTES;
+	pub const FastTrackVotingPeriod: BlockNumber = 2 * MINUTES;
 	pub const MinimumDeposit: Balance = 100 * DOLLARS;
-	pub const EnactmentPeriod: BlockNumber = 30 * 24 * 60 * MINUTES;
+	pub const EnactmentPeriod: BlockNumber = 2 * MINUTES;
 	pub const CooloffPeriod: BlockNumber = 28 * 24 * 60 * MINUTES;
 	pub const MaxProposals: u32 = 100;
 }
@@ -1391,10 +1391,10 @@ impl pallet_lottery::Config for Runtime {
 }
 
 parameter_types! {
-	pub const AssetDeposit: Balance = 100 * DOLLARS;
+	pub const AssetDeposit: Balance = 1 * DOLLARS;
 	pub const ApprovalDeposit: Balance = 1 * DOLLARS;
 	pub const StringLimit: u32 = 50;
-	pub const MetadataDepositBase: Balance = 10 * DOLLARS;
+	pub const MetadataDepositBase: Balance = 1 * DOLLARS;
 	pub const MetadataDepositPerByte: Balance = 1 * DOLLARS;
 }
 
@@ -1422,7 +1422,7 @@ parameter_types! {
 
 impl pallet_liquid_staking::Config for Runtime {
 	type Event = Event;
-	type Currency = Balances;
+	type ReservedCurrency = Balances;
 	type CurrencyBalance = <Self as pallet_balances::Config>::Balance;
 	type Assets = Assets;
 	type AssetId = <Self as pallet_assets::Config>::AssetId;
