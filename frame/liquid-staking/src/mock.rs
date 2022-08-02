@@ -264,6 +264,7 @@ impl pallet_assets::Config for Test {
 
 parameter_types! {
 	pub const LiquidStakingPalletId: PalletId = PalletId(*b"lstaking");
+	pub const LiquidAssetId = ConstU32(1);
 
 }
 
@@ -275,6 +276,7 @@ impl pallet_liquid_staking::Config for Test {
 	type ReservedCurrency = Balances;
 	type CurrencyBalance = <Self as pallet_balances::Config>::Balance;
 	type PalletId = LiquidStakingPalletId;
+	type LiquidAssetId = LiquidAssetId;
 }
 
 // Build genesis storage according to the mock runtime.

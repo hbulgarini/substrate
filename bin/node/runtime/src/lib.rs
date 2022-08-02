@@ -1417,6 +1417,7 @@ impl pallet_assets::Config for Runtime {
 
 parameter_types! {
 	pub const LiquidStakingPalletId: PalletId = PalletId(*b"lstaking");
+	pub const LiquidAssetId = ConstU32(1);
 
 }
 
@@ -1428,6 +1429,7 @@ impl pallet_liquid_staking::Config for Runtime {
 	type AssetId = <Self as pallet_assets::Config>::AssetId;
 	type StakingInterface = pallet_staking::Pallet<Self>;
 	type PalletId = LiquidStakingPalletId;
+	type LiquidAssetId = LiquidAssetId;
 }
 
 parameter_types! {

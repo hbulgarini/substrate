@@ -21,7 +21,7 @@
 use grandpa_primitives::AuthorityId as GrandpaId;
 use hex_literal::hex;
 use node_runtime::{
-	constants::currency::*, wasm_binary_unwrap, AuthorityDiscoveryConfig, BabeConfig,
+	constants::currency::*, wasm_binary_unwrap, AssetsConfig, AuthorityDiscoveryConfig, BabeConfig,
 	BalancesConfig, Block, CouncilConfig, DemocracyConfig, ElectionsConfig, GrandpaConfig,
 	ImOnlineConfig, IndicesConfig, MaxNominations, NominationPoolsConfig, SessionConfig,
 	SessionKeys, SocietyConfig, StakerStatus, StakingConfig, SudoConfig, SystemConfig,
@@ -296,6 +296,9 @@ pub fn testnet_genesis(
 	const ENDOWMENT: Balance = 10_000_000 * DOLLARS;
 	const STASH: Balance = ENDOWMENT / 1000;
 
+	let staking_lp_owner: AccountId =
+		hex!["6d6f646c6c7374616b696e670000000000000000000000000000000000000000"].into();
+
 	GenesisConfig {
 		system: SystemConfig { code: wasm_binary_unwrap().to_vec() },
 		balances: BalancesConfig {
@@ -360,7 +363,11 @@ pub fn testnet_genesis(
 			max_members: 999,
 		},
 		vesting: Default::default(),
-		assets: Default::default(),
+		assets: AssetsConfig {
+			assets: vec![(1, staking_lp_owner.clone(), true, 1 * DOLLARS)],
+			metadata: vec![(1, "LDOT".into(), "LDOT".into(), 12)],
+			accounts: vec![(1, staking_lp_owner.clone(), 0)],
+		},
 		gilt: Default::default(),
 		transaction_storage: Default::default(),
 		transaction_payment: Default::default(),
