@@ -86,11 +86,6 @@ pub mod pallet {
 		type LiquidAssetId: Get<u32>;
 	}
 
-	pub enum TransferDirection {
-		From,
-		To,
-	}
-
 	#[derive(Copy, Clone, PartialEq, Eq, RuntimeDebug, Encode, Decode, TypeInfo, MaxEncodedLen)]
 	pub enum Status {
 		Staking,
@@ -267,8 +262,6 @@ pub mod pallet {
 				.map_err(|_| Error::<T>::AssetNotBurnt)?;
 			T::ReservedCurrency::transfer(&owner, &who, withdrawn, KeepAlive)
 				.map_err(|_| Error::<T>::BalanceWithdrawError)?;
-			Self::transfer_owner(&who, TransferDirection::From, &withdrawn);
-
 			Ok(())
 		}
 
@@ -295,21 +288,6 @@ pub mod pallet {
 	impl<T: Config> Pallet<T> {
 		pub fn account_id() -> T::AccountId {
 			T::PalletId::get().into_account_truncating()
-		}
-
-		pub fn transfer_owner(
-			account: &T::AccountId,
-			direction: TransferDirection,
-			amount: &T::CurrencyBalance,
-		) {
-			let liquid_asset_id = T::AssetId::from(T::LiquidAssetId::get());
-			let owner = Self::account_id();
-			match direction {
-				TransferDirection::From =>
-					T::Assets::transfer(liquid_asset_id, &account, &owner, *amount, true),
-				TransferDirection::To =>
-					T::Assets::transfer(liquid_asset_id, &owner, &account, *amount, true),
-			};
 		}
 	}
 }
