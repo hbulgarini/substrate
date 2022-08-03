@@ -17,7 +17,6 @@
 
 use super::*;
 use crate::mock::*;
-use frame_support::{assert_err, assert_noop, assert_ok, assert_storage_noop, bounded_btree_map};
 
 #[test]
 fn basic_minting_should_work() {
@@ -25,21 +24,19 @@ fn basic_minting_should_work() {
 		let owner = LiquidStaking::account_id();
 		let account_1 = Origin::signed(1);
 		let amount_1 = 4000u64;
-		println!("{:?}", Balances::free_balance(owner));
+
+		let account_2 = Origin::signed(2);
+		let amount_2 = 6000u64;
 
 		LiquidStaking::stake(account_1, amount_1).unwrap();
-		LiquidStaking::stake(Origin::signed(2), 2000u64).unwrap();
-		LiquidStaking::stake(Origin::signed(3), 2000u64).unwrap();
+		LiquidStaking::stake(account_2, amount_2).unwrap();
 
-		let account_status = AccountStatus::<Test>::get(1u128, Status::Staking).unwrap();
-		assert_eq!(account_status, amount_1);
 
-		println!("active_stake prev nominate {:?}", StakingMock::active_stake(&owner).unwrap());
-		//	LiquidStaking::nominate(Origin::signed(1), vec![1u128]).unwrap();
-		println!("active_stake after nominate {:?}", StakingMock::active_stake(&owner).unwrap());
+		let account_staked = Staking::<Test>::get(1u128).unwrap();
+		assert_eq!(account_staked, amount_1);
 
-		LiquidStaking::unbound(Origin::signed(1), 100u64).unwrap();
-		println!("active_stake after unstake {:?}", StakingMock::active_stake(&owner).unwrap());
+		let total_staked = TotalStaked::<Test>::get().unwrap();
+		assert_eq!(total_staked, amount_1 + amount_2);
 	});
 }
 
@@ -62,9 +59,5 @@ fn unbound_should_work() {
 		LiquidStaking::unbound(Origin::signed(1), amount_to_unbound).unwrap();
 
 		assert_eq!(StakingMock::active_stake(&owner).unwrap(), amount - amount_to_unbound);
-		//assert_eq!(Balances::free_balance(owner),owner_balance + amount);
-		//assert_eq!(Assets::balance(asset_id, &1u128), amount - amount_to_unbound);
-
-		println!("active_stake after unstake {:?}", StakingMock::active_stake(&owner).unwrap());
 	});
 }

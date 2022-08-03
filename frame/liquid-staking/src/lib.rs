@@ -13,8 +13,10 @@ mod tests;
 
 use pallet_democracy::{AccountVote, ReferendumIndex};
 use sp_runtime::traits::{AccountIdConversion, AtLeast32BitUnsigned, Saturating, Zero};
-use sp_staking::StakingInterface;
+use sp_staking::{StakingInterface, EraIndex };
 use sp_std::vec::Vec;
+use codec::{Decode, Encode, MaxEncodedLen};
+use sp_arithmetic::per_things::Perbill;
 
 #[frame_support::pallet]
 pub mod pallet {
@@ -55,6 +57,7 @@ pub mod pallet {
 			+ From<u64>
 			+ TypeInfo
 			+ Saturating
+			+ Zero
 			+ MaxEncodedLen;
 
 		type AssetId: Member
@@ -86,12 +89,19 @@ pub mod pallet {
 		type LiquidAssetId: Get<u32>;
 	}
 
-	#[derive(Copy, Clone, PartialEq, Eq, RuntimeDebug, Encode, Decode, TypeInfo, MaxEncodedLen)]
-	pub enum Status {
-		Staking,
-		Voting,
-		Unbonding,
-	}
+
+	#[derive(Clone, Encode, Decode, PartialEq, RuntimeDebug, TypeInfo, MaxEncodedLen)]
+	pub struct UnbondingInformation<CurrencyBalance, EraIndex> {
+		balance: CurrencyBalance,
+		unbonding_era: EraIndex,
+	}	
+
+	#[derive(Clone, Encode, Decode, PartialEq, RuntimeDebug, TypeInfo, MaxEncodedLen)]
+	pub struct UserStakeData<CurrencyBalance> {
+		balance: CurrencyBalance,
+		percentage: Perbill,
+	}	
+
 
 	pub type AssetIdOf<T> =
 		<<T as Config>::Assets as Inspect<<T as frame_system::Config>::AccountId>>::AssetId;
@@ -102,50 +112,55 @@ pub mod pallet {
 	pub(super) type BalanceOf<T> = <<T as Config>::ReservedCurrency as Currency<
 		<T as frame_system::Config>::AccountId,
 	>>::Balance;
+
 	#[pallet::pallet]
 	#[pallet::generate_store(pub(super) trait Store)]
 	pub struct Pallet<T>(_);
 
 	#[pallet::storage]
-	#[pallet::getter(fn status)]
-	pub(super) type AccountStatus<T: Config> = StorageDoubleMap<
+	#[pallet::getter(fn staking)]
+	pub(super) type Staking<T: Config> = StorageMap<
 		_,
 		Blake2_128Concat,
 		T::AccountId,
-		Blake2_128Concat,
-		Status,
 		T::CurrencyBalance,
 	>;
 
-	// The pallet's runtime storage items.
-	// https&://docs.substrate.io/v3/runtime/storage
 	#[pallet::storage]
-	#[pallet::getter(fn get_staked)]
-	// Learn more about declaring storage items:
-	// https://docs.substrate.io/v3/runtime/storage#declaring-storage-items
-	pub type Staked<T: Config> = StorageMap<_, Blake2_128Concat, T::AccountId, T::CurrencyBalance>;
+	#[pallet::getter(fn total_stake)]
+	pub(super) type TotalStaked<T: Config> = StorageValue<_, T::CurrencyBalance>;
 
-	// The pallet's runtime storage items.
-	// https&://docs.substrate.io/v3/runtime/storage
 	#[pallet::storage]
-	#[pallet::getter(fn get_voted)]
-	// Learn more about declaring storage items:
-	// https://docs.substrate.io/v3/runtime/storage#declaring-storage-items
-	pub type Voted<T: Config> = StorageMap<_, Blake2_128Concat, T::AccountId, T::CurrencyBalance>;
+	#[pallet::getter(fn voting)]
+	pub(super) type Voting<T: Config> = StorageMap<
+		_,
+		Blake2_128Concat,
+		T::AccountId,
+		T::CurrencyBalance,
+	>;
 
-	// The pallet's runtime storage items.
-	// https&://docs.substrate.io/v3/runtime/storage
 	#[pallet::storage]
-	// Learn more about declaring storage items:
-	// https://docs.substrate.io/v3/runtime/storage#declaring-storage-items
-	pub type Bonded<T: Config> = StorageValue<_, bool>;
+	#[pallet::getter(fn unbonding)]
+	pub(super) type Unbonding<T: Config> = StorageMap<
+		_,
+		Blake2_128Concat,
+		T::AccountId,
+		UnbondingInformation<T::CurrencyBalance,EraIndex>
+	>;
 
 	// Pallets use events to inform users when important changes are made.
 	// https://docs.substrate.io/v3/runtime/events-and-errors
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
 	pub enum Event<T: Config> {
-		Deposited,
+		// User deposited balance
+		BalanceStaked {account: T::AccountId, amount: T::CurrencyBalance},
+		// Validators nominated
+		ValidatorsNominated {validators: Vec<T::AccountId>},
+		// Funds unbonded
+		StakeUnbonded  {account: T::AccountId, amount: T::CurrencyBalance, unbonding_era: EraIndex },
+		// User voted
+		UserVoted { account: T::AccountId, ref_index: ReferendumIndex, amount: T::CurrencyBalance }
 	}
 
 	// Errors inform users that something went wrong.
@@ -155,43 +170,64 @@ pub mod pallet {
 		NoneValue,
 		/// Errors should have helpful documentation associated with them.
 		StorageOverflow,
-		/// Unbound
+		/// Error during Unbound
 		ErrorUnbonding,
+		/// Error during bonding funds
 		ErrorBonding,
+		/// Error bonfing extra  funds
 		ErrorBondingExtra,
+		/// Error during withdrawing of bonds 
 		WithdrawError,
+		/// User trying to claim more assets than staked
 		NotEnoughAssets,
+		/// Not enough available assets to unbond
 		NotEnoughAssetsAvailable,
+		/// Error burning asset
 		AssetNotBurnt,
+		/// Error withdrawing native balance
 		BalanceWithdrawError,
+		/// Nomination failed
 		NominationFailed,
+		/// Error minting liquid asset
 		AssetMintingFailed,
+		/// Error depositing native asset
 		DepositFailed,
+		/// Error transfering liquid asset
+		AssetTransferError,
+		/// Govenance voting failed
+		GovernanceVotingError,
+		/// Funds where not unbonded
+		NotUnbondedYet
 	}
 
 	#[pallet::hooks]
 	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {}
 
-	// Dispatchable functions allows users to interact with the pallet and invoke state changes.
-	// These functions materialize as "extrinsics", which are often compared to transactions.
-	// Dispatchable functions must be annotated with a weight and must return a DispatchResult.
+
 	#[pallet::call]
 
 	impl<T: Config> Pallet<T> {
-		/// An example dispatchable that may throw a custom error.
+
 		#[pallet::weight(10_000 + T::DbWeight::get().reads_writes(1,1))]
-		pub fn stake(origin: OriginFor<T>, value: T::CurrencyBalance) -> DispatchResult {
+		pub fn stake(origin: OriginFor<T>, amount: T::CurrencyBalance) -> DispatchResult {
 			let source = ensure_signed(origin)?;
 			let liquid_asset_id = T::AssetId::from(T::LiquidAssetId::get());
 			let owner = Self::account_id();
 
-			T::ReservedCurrency::transfer(&source, &owner, value, KeepAlive)
+			T::ReservedCurrency::transfer(&source, &owner, amount, KeepAlive)
 				.map_err(|_| Error::<T>::DepositFailed)?;
 
-			<Staked<T>>::insert(&source, &value);
-			<AccountStatus<T>>::insert(&source, Status::Staking, &value);
+			let total_staked = <TotalStaked<T>>::get();
+			let updated_stake = match total_staked {
+				Some(total_staked) => total_staked.saturating_add(amount),
+				None => amount
+			};
 
-			T::Assets::mint_into(liquid_asset_id, &source, value)
+			<TotalStaked<T>>::put(updated_stake);
+
+			<Staking<T>>::insert(&source, amount.clone());
+
+			T::Assets::mint_into(liquid_asset_id, &source, amount)
 				.map_err(|_| Error::<T>::AssetMintingFailed)?;
 			let staked = T::StakingInterface::total_stake(&owner);
 
@@ -199,22 +235,24 @@ pub mod pallet {
 				None => T::StakingInterface::bond(
 					owner.clone(),
 					owner.clone(),
-					value.clone(),
+					amount.clone(),
 					owner.clone(),
 				)
 				.map_err(|_| Error::<T>::ErrorBonding)?,
-				Some(_) => T::StakingInterface::bond_extra(owner.clone(), value.clone())
+				Some(_) => T::StakingInterface::bond_extra(owner.clone(), amount.clone())
 					.map_err(|_| Error::<T>::ErrorBondingExtra)?,
 			};
-
+			Self::deposit_event(Event::BalanceStaked {account: source, amount});
 			Ok(())
 		}
 
 		#[pallet::weight(10_000 + T::DbWeight::get().reads_writes(1,1))]
-		pub fn nominate(_origin: OriginFor<T>, validator: Vec<T::AccountId>) -> DispatchResult {
+		pub fn nominate(_origin: OriginFor<T>, validators: Vec<T::AccountId>) -> DispatchResult {
 			let owner = Self::account_id();
-			T::StakingInterface::nominate(owner.clone(), validator)
+			T::StakingInterface::nominate(owner.clone(), validators.clone())
 				.map_err(|_| Error::<T>::NominationFailed)?;
+			
+				Self::deposit_event(Event::ValidatorsNominated {validators});
 
 			Ok(())
 		}
@@ -229,7 +267,7 @@ pub mod pallet {
 
 			ensure!(amount <= total_asset_balance, Error::<T>::NotEnoughAssets);
 
-			let has_voting = AccountStatus::<T>::get(&who, Status::Voting);
+			let has_voting = <Voting<T>>::get(&who);
 			let available = match has_voting {
 				Some(voting) => total_asset_balance - voting,
 				None => amount,
@@ -238,12 +276,21 @@ pub mod pallet {
 			ensure!(amount <= available, Error::<T>::NotEnoughAssetsAvailable);
 			let remaining = total_asset_balance - available;
 			if remaining > Zero::zero() {
-				<AccountStatus<T>>::insert(&who, Status::Staking, &remaining);
+
+				<Staking<T>>::insert(&who, &remaining);
 			}
 
-			T::StakingInterface::unbond(owner, amount).map_err(|_| Error::<T>::ErrorUnbonding)?;
-			<AccountStatus<T>>::insert(&who, Status::Unbonding, &amount);
+			let current_era = T::StakingInterface::current_era();
+			let bonding_duration = T::StakingInterface::current_era();
+	 
+			let unbonding_information = UnbondingInformation {
+				balance: amount,
+				unbonding_era: current_era + bonding_duration
+			} ;
 
+			T::StakingInterface::unbond(owner, amount).map_err(|_| Error::<T>::ErrorUnbonding)?;
+			<Unbonding<T>>::insert(&who, &unbonding_information);
+			Self::deposit_event(Event::StakeUnbonded {account: who, amount, unbonding_era: unbonding_information.unbonding_era});
 			Ok(())
 		}
 
@@ -253,15 +300,34 @@ pub mod pallet {
 			let liquid_asset_id = T::AssetId::from(T::LiquidAssetId::get());
 			let owner = Self::account_id();
 
-			let withdrawn = AccountStatus::<T>::get(&who, Status::Unbonding)
-				.ok_or(Error::<T>::WithdrawError)?;
+			let withdrawn = Unbonding::<T>::get(&who)
+			.ok_or(Error::<T>::WithdrawError)?;
 
-			T::StakingInterface::withdraw_unbonded(owner.clone(), 10)
-				.map_err(|_| Error::<T>::ErrorUnbonding)?;
-			T::Assets::burn_from(liquid_asset_id, &owner.clone(), withdrawn)
-				.map_err(|_| Error::<T>::AssetNotBurnt)?;
-			T::ReservedCurrency::transfer(&owner, &who, withdrawn, KeepAlive)
-				.map_err(|_| Error::<T>::BalanceWithdrawError)?;
+			let current_era = T::StakingInterface::current_era();
+				if withdrawn.unbonding_era >= current_era {
+					T::StakingInterface::withdraw_unbonded(owner.clone(), 10)
+					.map_err(|_| Error::<T>::ErrorUnbonding)?;
+				T::Assets::burn_from(liquid_asset_id, &owner.clone(), withdrawn.balance)
+					.map_err(|_| Error::<T>::AssetNotBurnt)?;
+				T::ReservedCurrency::transfer(&owner, &who, withdrawn.balance, KeepAlive)
+					.map_err(|_| Error::<T>::BalanceWithdrawError)?;
+
+				// Clean up
+				let staked_amount = <Staking<T>>::get(&who);
+				match staked_amount {
+					Some(staked_amount) => {
+						if staked_amount.is_zero(){
+							<Staking<T>>::take(&who);
+						};
+					},
+					None => ()
+				};
+			} else {
+				return Err(<Error<T>>::NotUnbondedYet.into());
+			}
+
+
+
 			Ok(())
 		}
 
@@ -271,15 +337,17 @@ pub mod pallet {
 			#[pallet::compact] ref_index: ReferendumIndex,
 			vote: AccountVote<BalanceOf<T>>,
 		) -> DispatchResult {
-			let who = ensure_signed(origin)?;
+			let who = ensure_signed(origin.clone())?;
 			let liquid_asset_id = T::AssetId::from(T::LiquidAssetId::get());
 			let owner = Self::account_id();
 			let amount = vote.balance();
-			T::Assets::transfer(liquid_asset_id, &who, &owner, amount, true).unwrap();
-			<Voted<T>>::insert(&who, &amount);
 
-			// TODO remove pub and use vote
-			pallet_democracy::Pallet::<T>::try_vote(&owner, ref_index, vote).unwrap();
+			T::Assets::transfer(liquid_asset_id, &who, &owner, amount, true).map_err(|_| Error::<T>::AssetTransferError)?;
+
+			<Voting<T>>::insert(&who, &amount);
+			pallet_democracy::Pallet::<T>::vote(origin, ref_index, vote).map_err(|_| Error::<T>::GovernanceVotingError)?;
+
+			Self::deposit_event(Event::UserVoted {account: who, ref_index, amount});
 
 			Ok(())
 		}
@@ -289,5 +357,6 @@ pub mod pallet {
 		pub fn account_id() -> T::AccountId {
 			T::PalletId::get().into_account_truncating()
 		}
+		
 	}
 }
