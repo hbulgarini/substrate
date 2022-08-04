@@ -17,6 +17,7 @@
 
 use super::*;
 use crate::mock::*;
+use sp_runtime::Perbill;
 
 #[test]
 fn basic_minting_should_work() {
@@ -28,20 +29,64 @@ fn basic_minting_should_work() {
 		let account_2 = Origin::signed(2);
 		let amount_2 = 6000u64;
 
+		println!("free_balance before staking {:?}",Balances::free_balance(owner));
 		LiquidStaking::stake(account_1, amount_1).unwrap();
+
+		let staking_track =  <StakingIndex<Test>>::get().unwrap();
+		let (total_staked, total_issued, ratio) = staking_track;
+
+		println!("ratio {:?}",Perbill::from_percent(120 * 100 / 1000) * 100000000u64);
+
+		
+
+		println!("----- 1 stake ----------");
+		println!("total_staked: {:?}, total_issued: {:?}, ratio: {:?}",total_staked, total_issued, ratio);
 		LiquidStaking::stake(account_2, amount_2).unwrap();
 
+	//	assert_eq!(Balances::free_balance(owner), owner_balance + amount);
+		println!("free_balance {:?}",Balances::free_balance(owner));
+		println!("reserved_balance {:?}",Balances::reserved_balance(owner));
 
-		let account_staked = Staking::<Test>::get(1u128).unwrap();
+		println!("----- 2 stake ----------");
+		let staking_track =  <StakingIndex<Test>>::get().unwrap();
+		let (total_staked, total_issued, ratio) = staking_track;
+		println!("free_balance {:?}",Balances::free_balance(owner));
+		println!("reserved_balance {:?}",Balances::reserved_balance(owner));
+		println!("total_staked: {:?}, total_issued: {:?}, ratio: {:?}",total_staked, total_issued, ratio);
+
+
+/* 		let account_staked = Staking::<Test>::get(1u128).unwrap();
 		assert_eq!(account_staked, amount_1);
 
 		let total_staked = TotalStaked::<Test>::get().unwrap();
-		assert_eq!(total_staked, amount_1 + amount_2);
+		assert_eq!(total_staked, amount_1 + amount_2); */
 	});
 }
 
 #[test]
 fn unbound_should_work() {
+	new_test_ext().execute_with(|| {
+		let owner = LiquidStaking::account_id();
+		let who = Origin::signed(1);
+		let asset_id = AssetIdOf::<Test>::from(LiquidAssetId::get());
+		let amount = 4000u64;
+		let amount_to_unbound = 1500u64;
+		let owner_balance = Balances::free_balance(owner);
+
+		LiquidStaking::stake(who, amount).unwrap();
+
+		assert_eq!(Balances::free_balance(owner), owner_balance + amount);
+		assert_eq!(Assets::balance(asset_id, &1u128), amount);
+		assert_eq!(StakingMock::active_stake(&owner).unwrap(), amount);
+
+		LiquidStaking::unbound(Origin::signed(1), amount_to_unbound).unwrap();
+
+		assert_eq!(StakingMock::active_stake(&owner).unwrap(), amount - amount_to_unbound);
+	});
+}
+
+#[test]
+fn check_ratio_calculation() {
 	new_test_ext().execute_with(|| {
 		let owner = LiquidStaking::account_id();
 		let who = Origin::signed(1);

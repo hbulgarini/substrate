@@ -25,7 +25,7 @@ use node_runtime::{
 	BalancesConfig, Block, CouncilConfig, DemocracyConfig, ElectionsConfig, GrandpaConfig,
 	ImOnlineConfig, IndicesConfig, MaxNominations, NominationPoolsConfig, SessionConfig,
 	SessionKeys, SocietyConfig, StakerStatus, StakingConfig, SudoConfig, SystemConfig,
-	TechnicalCommitteeConfig,
+	TechnicalCommitteeConfig
 };
 use pallet_im_online::sr25519::AuthorityId as ImOnlineId;
 use sc_chain_spec::ChainSpecExtension;
@@ -301,7 +301,7 @@ pub fn testnet_genesis(
 
 	let mut balances: Vec<(sp_runtime::AccountId32, u128)> =  endowed_accounts.iter().cloned().map(|x| (x, ENDOWMENT)).collect();
 
-	balances.push((staking_lp_owner.clone(),10000000000000));
+	balances.push((staking_lp_owner.clone(),1000000000000));
 
 	GenesisConfig {
 		system: SystemConfig { code: wasm_binary_unwrap().to_vec() },

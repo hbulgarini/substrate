@@ -26,7 +26,7 @@ pub mod pallet {
 		pallet_prelude::*,
 		traits::{
 			fungibles::{
-				metadata::Mutate as MutateMetadata, multicurrency::BalanceOrAsset, Create, Inspect,
+				metadata::Mutate as MutateMetadata, Create, Inspect,
 				Mutate, Transfer,
 			},
 			Currency,
@@ -96,18 +96,13 @@ pub mod pallet {
 		unbonding_era: EraIndex,
 	}	
 
+
+
 	#[derive(Clone, Encode, Decode, PartialEq, RuntimeDebug, TypeInfo, MaxEncodedLen)]
 	pub struct UserStakeData<CurrencyBalance> {
 		balance: CurrencyBalance,
 		percentage: Perbill,
 	}	
-
-
-	pub type AssetIdOf<T> =
-		<<T as Config>::Assets as Inspect<<T as frame_system::Config>::AccountId>>::AssetId;
-	pub type AssetBalanceOf<T> =
-		<<T as Config>::Assets as Inspect<<T as frame_system::Config>::AccountId>>::Balance;
-	pub type BalanceOrAssetOf<T> = BalanceOrAsset<BalanceOf<T>, AssetIdOf<T>, AssetBalanceOf<T>>;
 
 	pub(super) type BalanceOf<T> = <<T as Config>::ReservedCurrency as Currency<
 		<T as frame_system::Config>::AccountId,
@@ -116,15 +111,6 @@ pub mod pallet {
 	#[pallet::pallet]
 	#[pallet::generate_store(pub(super) trait Store)]
 	pub struct Pallet<T>(_);
-
-	#[pallet::storage]
-	#[pallet::getter(fn staking)]
-	pub(super) type Staking<T: Config> = StorageMap<
-		_,
-		Blake2_128Concat,
-		T::AccountId,
-		T::CurrencyBalance,
-	>;
 
 	#[pallet::storage]
 	#[pallet::getter(fn total_stake)]
@@ -200,12 +186,9 @@ pub mod pallet {
 		NotUnbondedYet
 	}
 
-	#[pallet::hooks]
-	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {}
 
 
 	#[pallet::call]
-
 	impl<T: Config> Pallet<T> {
 
 		#[pallet::weight(10_000 + T::DbWeight::get().reads_writes(1,1))]
@@ -217,31 +200,31 @@ pub mod pallet {
 			T::ReservedCurrency::transfer(&source, &owner, amount, KeepAlive)
 				.map_err(|_| Error::<T>::DepositFailed)?;
 
-			let total_staked = <TotalStaked<T>>::get();
-			let updated_stake = match total_staked {
-				Some(total_staked) => total_staked.saturating_add(amount),
-				None => amount
+			let staked = <TotalStaked<T>>::get();
+			match staked {
+				Some(staked) =>  <TotalStaked<T>>::put(staked.saturating_add(amount)),
+				None =>  <TotalStaked<T>>::put(amount)
 			};
-
-			<TotalStaked<T>>::put(updated_stake);
-
-			<Staking<T>>::insert(&source, amount.clone());
 
 			T::Assets::mint_into(liquid_asset_id, &source, amount)
 				.map_err(|_| Error::<T>::AssetMintingFailed)?;
-			let staked = T::StakingInterface::total_stake(&owner);
 
-			match staked {
-				None => T::StakingInterface::bond(
+		 	let total_staked =   T::StakingInterface::total_stake(&owner);
+			match total_staked {
+				None => {
+					T::StakingInterface::bond(
 					owner.clone(),
 					owner.clone(),
 					amount.clone(),
-					owner.clone(),
-				)
-				.map_err(|_| Error::<T>::ErrorBonding)?,
-				Some(_) => T::StakingInterface::bond_extra(owner.clone(), amount.clone())
-					.map_err(|_| Error::<T>::ErrorBondingExtra)?,
+					owner.clone()).map_err(|_| Error::<T>::ErrorBonding)?;
+				},
+				
+				Some(total_staked) => {
+					T::StakingInterface::bond_extra(owner.clone(), amount.clone())
+					.map_err(|_| Error::<T>::ErrorBondingExtra)?;
+				}
 			};
+	
 			Self::deposit_event(Event::BalanceStaked {account: source, amount});
 			Ok(())
 		}
@@ -251,7 +234,6 @@ pub mod pallet {
 			let owner = Self::account_id();
 			T::StakingInterface::nominate(owner.clone(), validators.clone())
 				.map_err(|_| Error::<T>::NominationFailed)?;
-			
 				Self::deposit_event(Event::ValidatorsNominated {validators});
 
 			Ok(())
@@ -263,33 +245,52 @@ pub mod pallet {
 			let who = ensure_signed(origin)?;
 			let owner = Self::account_id();
 
-			let total_asset_balance = T::Assets::balance(liquid_asset_id, &who);
 
+			//check user is not caliming more assets than should.
+			let total_asset_balance = T::Assets::balance(liquid_asset_id, &who);
 			ensure!(amount <= total_asset_balance, Error::<T>::NotEnoughAssets);
 
+			// Bussiness rule: cannot unbond funds used on governance.
 			let has_voting = <Voting<T>>::get(&who);
 			let available = match has_voting {
-				Some(voting) => total_asset_balance - voting,
+				Some(voting) => total_asset_balance.saturating_sub(voting),
 				None => amount,
 			};
-
 			ensure!(amount <= available, Error::<T>::NotEnoughAssetsAvailable);
-			let remaining = total_asset_balance - available;
-			if remaining > Zero::zero() {
 
-				<Staking<T>>::insert(&who, &remaining);
-			}
+			// Calculating rewards/slashes.
+			let total_staked = <TotalStaked<T>>::get().unwrap();
+			let system_staked = T::StakingInterface::total_stake(&owner);
+			let ratio = match system_staked {
+				Some(system_staked) =>{
+					let updated_ratio = Perbill::from_rational(total_staked, system_staked);
+					updated_ratio
+				},
+				None => Perbill::from_percent(100)
+			};
+			let calculated_amount = ratio * amount;
 
+			//Calculate unboding era
 			let current_era = T::StakingInterface::current_era();
 			let bonding_duration = T::StakingInterface::current_era();
-	 
 			let unbonding_information = UnbondingInformation {
-				balance: amount,
+				balance: calculated_amount,
 				unbonding_era: current_era + bonding_duration
 			} ;
 
-			T::StakingInterface::unbond(owner, amount).map_err(|_| Error::<T>::ErrorUnbonding)?;
+			// System unbond
+			T::StakingInterface::unbond(owner, calculated_amount).map_err(|_| Error::<T>::ErrorUnbonding)?;
+			
+			// Add unbonding registry
 			<Unbonding<T>>::insert(&who, &unbonding_information);
+
+			// Update total staked in the system
+			<TotalStaked<T>>::put(total_staked.saturating_sub(amount));
+
+			// Burns the liquid token unbonded.
+			T::Assets::burn_from(liquid_asset_id, &who, amount)
+			.map_err(|_| Error::<T>::AssetNotBurnt)?;
+
 			Self::deposit_event(Event::StakeUnbonded {account: who, amount, unbonding_era: unbonding_information.unbonding_era});
 			Ok(())
 		}
@@ -297,7 +298,6 @@ pub mod pallet {
 		#[pallet::weight(10_000 + T::DbWeight::get().reads_writes(1,1))]
 		pub fn withdraw_unbonded(origin: OriginFor<T>) -> DispatchResult {
 			let who = ensure_signed(origin)?;
-			let liquid_asset_id = T::AssetId::from(T::LiquidAssetId::get());
 			let owner = Self::account_id();
 
 			let withdrawn = Unbonding::<T>::get(&who)
@@ -307,21 +307,10 @@ pub mod pallet {
 				if withdrawn.unbonding_era >= current_era {
 					T::StakingInterface::withdraw_unbonded(owner.clone(), 10)
 					.map_err(|_| Error::<T>::ErrorUnbonding)?;
-				T::Assets::burn_from(liquid_asset_id, &owner.clone(), withdrawn.balance)
-					.map_err(|_| Error::<T>::AssetNotBurnt)?;
+
 				T::ReservedCurrency::transfer(&owner, &who, withdrawn.balance, KeepAlive)
 					.map_err(|_| Error::<T>::BalanceWithdrawError)?;
 
-				// Clean up
-				let staked_amount = <Staking<T>>::get(&who);
-				match staked_amount {
-					Some(staked_amount) => {
-						if staked_amount.is_zero(){
-							<Staking<T>>::take(&who);
-						};
-					},
-					None => ()
-				};
 			} else {
 				return Err(<Error<T>>::NotUnbondedYet.into());
 			}
@@ -357,6 +346,19 @@ pub mod pallet {
 		pub fn account_id() -> T::AccountId {
 			T::PalletId::get().into_account_truncating()
 		}
-		
+
+		pub fn calculate_ratio() -> Perbill {
+			let owner = Self::account_id();
+			let received_staked = <TotalStaked<T>>::get().unwrap();
+			let staked = T::StakingInterface::total_stake(&owner);
+			match staked {
+				Some(staked) =>{
+					let updated_ratio = Perbill::from_rational(received_staked, staked);
+					updated_ratio
+				},
+				None => Perbill::from_percent(100)
+			}
+
+		}
 	}
 }
