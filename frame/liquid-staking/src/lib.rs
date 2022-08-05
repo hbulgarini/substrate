@@ -261,6 +261,7 @@ pub mod pallet {
 			// Calculating rewards/slashes.
 			let total_staked = <TotalStaked<T>>::get().unwrap();
 			let system_staked = T::StakingInterface::total_stake(&owner);
+
 			let ratio = match system_staked {
 				Some(system_staked) =>{
 					let updated_ratio = Perbill::from_rational(total_staked, system_staked);
@@ -272,7 +273,7 @@ pub mod pallet {
 
 			//Calculate unboding era
 			let current_era = T::StakingInterface::current_era();
-			let bonding_duration = T::StakingInterface::current_era();
+			let bonding_duration = T::StakingInterface::bonding_duration();
 			let unbonding_information = UnbondingInformation {
 				balance: calculated_amount,
 				unbonding_era: current_era + bonding_duration
@@ -304,7 +305,7 @@ pub mod pallet {
 			.ok_or(Error::<T>::WithdrawError)?;
 
 			let current_era = T::StakingInterface::current_era();
-				if withdrawn.unbonding_era >= current_era {
+				if withdrawn.unbonding_era <= current_era {
 					T::StakingInterface::withdraw_unbonded(owner.clone(), 10)
 					.map_err(|_| Error::<T>::ErrorUnbonding)?;
 
